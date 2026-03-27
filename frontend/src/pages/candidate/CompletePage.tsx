@@ -6,6 +6,16 @@ export default function CompletePage() {
   const location    = useLocation()
   const pendingReview = location.state?.pendingReview || false
 
+  const isElectron = !!(window as any).electronBridge?.isElectron
+
+  const handleExit = () => {
+    if (isElectron) {
+      (window as any).electronBridge.notifyTestComplete()
+    } else {
+      navigate('/login')
+    }
+  }
+
   return (
     <div style={{
       minHeight:      '100vh',
@@ -84,10 +94,10 @@ export default function CompletePage() {
         <button
           className="btn btn-outline"
           style={{ width:'100%', gap:8 }}
-          onClick={() => navigate('/login')}
+          onClick={handleExit}
         >
-          <ArrowLeft size={16} />
-          Return to Login
+          {!isElectron && <ArrowLeft size={16} />}
+          {isElectron ? 'Exit Assessment App' : 'Return to Login'}
         </button>
 
       </div>

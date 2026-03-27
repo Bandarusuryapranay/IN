@@ -153,6 +153,7 @@ export async function grantPermission(candidateId: string) {
     campaignName:  candidate.campaign.name,
     role:          candidate.campaign.role,
     loginUrl:      `${process.env.CLIENT_URL}/auth/login`,
+    appDownloadUrl: process.env.ELECTRON_APP_URL,   // optional — set in .env to enable download button
   })
 
   await prisma.auditLog.create({

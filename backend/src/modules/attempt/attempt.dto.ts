@@ -17,6 +17,7 @@ export const SubmitCodingDto = z.object({
   language:         z.string(),
   sourceCode:       z.string(),
   timeTakenSeconds: z.number().optional(),
+  keystrokeMetrics: z.any().optional(),
 })
 
 // ── Interview submit — JSON body (TEXT mode) ──────────────────

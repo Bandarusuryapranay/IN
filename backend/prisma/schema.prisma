@@ -279,6 +279,7 @@ model CodingSubmission {
   statusDesc      String?
   timeTakenMs     Float?
   memoryUsedKb    Float?
+  keystrokeMetrics Json?
   testCaseResults Json?
   testCasesPassed Int?
   testCasesTotal  Int?

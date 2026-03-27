@@ -246,7 +246,7 @@ export async function submitCodingAnswer(input: SubmitCodingInput) {
   })
 
   const submission = await prisma.codingSubmission.create({
-    data: { attemptId: input.attemptId, questionId: input.questionId, language: input.language, sourceCode: input.sourceCode, statusDesc: 'PENDING' },
+    data: { attemptId: input.attemptId, questionId: input.questionId, language: input.language, sourceCode: input.sourceCode, keystrokeMetrics: input.keystrokeMetrics, statusDesc: 'PENDING' },
   })
 
   const wrapper = (question.solutionCode as any)?.[input.language] || ''
@@ -278,7 +278,22 @@ export async function runCodingTestCases(input: SubmitCodingInput) {
   })
   const wrapper = (question.solutionCode as any)?.[input.language] || ''
   const executableCode = input.sourceCode + '\n' + wrapper
-  return runTestCases({ sourceCode: executableCode, language: input.language, testCases: question.testCases as any[] })
+  
+  const allResults = await runTestCases({ sourceCode: executableCode, language: input.language, testCases: question.testCases as any[] })
+  
+  // ── FIX: Hide hidden test case actual outputs from the frontend /run API
+  const safeResults = allResults.results.map((r: any) => {
+    if (r.isHidden) {
+      return {
+        ...r,
+        actualOutput: 'Hidden test case executed',
+        expectedOutput: 'Hidden'
+      }
+    }
+    return r
+  })
+  
+  return { ...allResults, results: safeResults }
 }
 
 // ── Submit Interview (TEXT / AUDIO) ───────────────────────────
@@ -534,6 +549,16 @@ export async function submitInterviewOrLiveCoding(input: any) {
 
 // ── Complete attempt — auto-advance on PASS, auto-reject on FAIL
 export async function completeAttempt(attemptId: string, candidateId: string) {
+  // ── FIX: Wait for pending Judge0 submissions before scoring (up to 15s)
+  let pendingCount = -1
+  for (let i = 0; i < 15; i++) {
+    pendingCount = await prisma.codingSubmission.count({
+      where: { attemptId, statusDesc: 'PENDING' }
+    })
+    if (pendingCount === 0) break
+    await new Promise(res => setTimeout(res, 1000)) // poll every 1s
+  }
+
   const attempt = await prisma.candidateAttempt.findUniqueOrThrow({
     where: { id: attemptId },
     include: { mcqAnswers: true, codingSubmissions: true, interviewAnswers: true },
@@ -546,9 +571,22 @@ export async function completeAttempt(attemptId: string, candidateId: string) {
   const cfg = (roundCfg?.roundConfig as any) || {}
 
   const mcqTotal = attempt.mcqAnswers.reduce((s, a) => s + (a.marksAwarded || 0), 0)
-  const mcqMax = attempt.mcqAnswers.length * (cfg.marksPerQuestion || 1)
-  const codingTotal = attempt.codingSubmissions.reduce((s, s2) => s + (s2.marksAwarded || 0), 0)
-  const codingMax = attempt.codingSubmissions.length * 10
+  const mcqMax = attempt.assignedQuestionIds?.length ? attempt.assignedQuestionIds.length * (cfg.marksPerQuestion || 1) : 0
+  
+  // Only count the latest submission per question for total
+  const latestSubs: Record<string, any> = {}
+  attempt.codingSubmissions.forEach(s => {
+    if (!latestSubs[s.questionId] || s.submittedAt > latestSubs[s.questionId].submittedAt) {
+      latestSubs[s.questionId] = s
+    }
+  })
+  
+  const codingTotal = Object.values(latestSubs).reduce((s, a: any) => s + (a.marksAwarded || 0), 0)
+  
+  // ── FIX: Max score must encompass ALL assigned questions (not just submitted ones)
+  const codingQuestionsAssigned = (attempt.assignedQuestionIds || []).length
+  const codingMax = codingQuestionsAssigned * 10
+  
   const interviewTotal = attempt.interviewAnswers.reduce((s, a) => s + ((a.aiScore || 0) / 10), 0)
   const interviewMax = attempt.interviewAnswers.length
 

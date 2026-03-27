@@ -8,20 +8,41 @@ import { ProctoringCamera } from '../../components/ProctoringCamera'
 import { useThemeStore } from '../../store/themeStore'
 import { useAssessmentLockdown } from '../../hooks/useAssessmentLockdown'
 
+// ── Electron bridge (populated by electron/preload.js when running as desktop app)
+const electronBridge = (window as any).electronBridge as {
+  isElectron: boolean
+  notifyTestComplete: () => void
+  onFocusLost: (cb: () => void) => void
+  offFocusLost: () => void
+} | undefined
+
 export default function AssessmentLayout() {
   const navigate = useNavigate()
   const { roundId } = useParams()
   const { theme, toggleTheme } = useThemeStore()
 
+  // Electron mode — injected by preload.js when running as a desktop app
+  const isElectron = !!electronBridge?.isElectron
+
   // Violation reporting proxy (to be hooked into ProctoringCamera)
   const reportFnRef = useRef<((type: string, isStrike: boolean) => void) | null>(null)
 
   const { isFullscreen, enterFullscreen } = useAssessmentLockdown({
-    onViolationReport: (type) => {
-      // Trigger a formal strike with evidence when a lockdown rule is broken
+    // In Electron, the kiosk window already enforces full screen at the OS level,
+    // so we skip browser-level full-screen violation reporting.
+    onViolationReport: isElectron ? undefined : (type) => {
       reportFnRef.current?.(type, true)
     }
   })
+
+  // Wire up Electron focus-lost events: treat them as a TAB_SWITCH violation
+  useEffect(() => {
+    if (!isElectron || !electronBridge) return
+    electronBridge.onFocusLost(() => {
+      reportFnRef.current?.('TAB_SWITCH', true)
+    })
+    return () => electronBridge.offFocusLost()
+  }, [isElectron])
 
   const [timeLeft, setTimeLeft] = useState<number | null>(null)
   const [roundTitle, setRoundTitle] = useState('')
@@ -98,8 +119,8 @@ export default function AssessmentLayout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       
-      {/* Fullscreen Guard Overlay */}
-      {!isFullscreen && (
+      {/* Fullscreen Guard Overlay — skipped in Electron (kiosk window handles it natively) */}
+      {!isElectron && !isFullscreen && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(8px)',

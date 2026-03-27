@@ -32,6 +32,7 @@ export async function sendCandidateCredentials(params: {
   campaignName: string
   role:         string
   loginUrl:     string
+  appDownloadUrl?: string
 }) {
   const log = await prisma.emailLog.create({
     data: {

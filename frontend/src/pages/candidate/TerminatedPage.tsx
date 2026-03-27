@@ -9,6 +9,16 @@ export default function TerminatedPage() {
   const type = location.state?.type || 'proctoring'
   const reason = location.state?.reason || 'Unknown error. Your session was ended.'
 
+  const isElectron = !!(window as any).electronBridge?.isElectron
+
+  const handleExit = () => {
+    if (isElectron) {
+      (window as any).electronBridge.notifyTestComplete()
+    } else {
+      navigate('/login')
+    }
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <div className="card fade-in" style={{ maxWidth: '500px', width: '100%', textAlign: 'center', padding: '40px' }}>
@@ -35,8 +45,8 @@ export default function TerminatedPage() {
           </>
         )}
 
-        <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => navigate('/login')}>
-          Return to Login
+        <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleExit}>
+          {isElectron ? 'Exit Assessment App' : 'Return to Login'}
         </button>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { withOfflineRetry } from '../../utils/offlineQueue'
 
 export default function MCQRound() {
   const { roundId } = useParams()
@@ -19,6 +20,7 @@ export default function MCQRound() {
   const [attempt, setAttempt]       = useState<any>(null)
   const [answers, setAnswers]       = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [confirmSubmit, setConfirmSubmit] = useState(false)
 
   useEffect(() => { startAttempt() }, [roundId])
 
@@ -63,11 +65,14 @@ export default function MCQRound() {
   // ── FIXED: always return to lobby so candidate goes through
   //    rules + face-verify before starting the next round ────────
   const handleFinish = async () => {
-    if (!window.confirm('Are you sure you want to submit your assessment?')) return
+    if (!confirmSubmit) {
+      setConfirmSubmit(true)
+      return
+    }
 
     setSubmitting(true)
     try {
-      const res = await attemptApi.complete(attempt.id)
+      const res = await withOfflineRetry(() => attemptApi.complete(attempt.id))
       const outcome = res.advancement?.outcome
 
       if (outcome === 'ADVANCED') {
@@ -191,10 +196,13 @@ export default function MCQRound() {
               className="btn btn-primary"
               onClick={handleFinish}
               disabled={submitting}
+              style={{ background: confirmSubmit ? 'var(--red)' : '', borderColor: confirmSubmit ? 'var(--red)' : '' }}
             >
               {submitting
                 ? <><div className="spinner spinner-sm" /> Submitting...</>
-                : <><Send size={16} /> Finish Assessment</>}
+                : confirmSubmit
+                  ? 'Click again to confirm'
+                  : <><Send size={16} /> Finish Assessment</>}
             </button>
           ) : (
             <button

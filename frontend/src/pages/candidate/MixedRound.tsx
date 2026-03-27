@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom'
 import { attemptApi } from '../../services/api.services'
 import { 
   ChevronLeft, ChevronRight, Play, 
-  MessageSquare, Sun, Moon, Type, Code2, AlignLeft
+  MessageSquare, Sun, Moon, Type, AlignLeft
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Editor from '@monaco-editor/react'
 import axios from 'axios'
+import { withOfflineRetry } from '../../utils/offlineQueue'
 
 const LANG_OPTIONS = [
   { value: 'javascript', label: 'JavaScript' },
@@ -32,6 +33,7 @@ export default function MixedRound() {
   const [loading, setLoading] = useState(true)
   const [attempt, setAttempt] = useState<any>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [confirmSubmit, setConfirmSubmit] = useState(false)
 
   // State for different question types
   const [mcqAnswers, setMcqAnswers] = useState<Record<string, string>>({})
@@ -46,6 +48,7 @@ export default function MixedRound() {
   const [fontSize, setFontSize] = useState(13)
   const [darkTheme, setDarkTheme] = useState(true)
   const [lineNums, setLineNums] = useState(true)
+  const metricsRef = useRef<Record<string, { keystrokes: number, backspaces: number, pastes: number }>>({})
 
   useEffect(() => {
     startAttempt()
@@ -118,6 +121,26 @@ export default function MixedRound() {
     }))
   }
 
+  const handleEditorMount = (editor: any, monaco: any) => {
+    editor.onKeyDown((e: any) => {
+      const qId = questions[currentIndex]?.id
+      if (!qId) return
+      if (!metricsRef.current[qId]) metricsRef.current[qId] = { keystrokes: 0, backspaces: 0, pastes: 0 }
+      
+      metricsRef.current[qId].keystrokes++
+      if (e.keyCode === monaco.KeyCode.Backspace) {
+        metricsRef.current[qId].backspaces++
+      }
+    })
+
+    editor.onDidPaste(() => {
+      const qId = questions[currentIndex]?.id
+      if (!qId) return
+      if (!metricsRef.current[qId]) metricsRef.current[qId] = { keystrokes: 0, backspaces: 0, pastes: 0 }
+      metricsRef.current[qId].pastes++
+    })
+  }
+
   const handleRunCode = async () => {
     setRunning(true)
     setConsoleOutput('Executing...')
@@ -142,7 +165,8 @@ export default function MixedRound() {
         attemptId: attempt.id,
         questionId: qId,
         sourceCode: codingCodes[qId]?.[selectedLanguage] || '',
-        language: selectedLanguage
+        language: selectedLanguage,
+        keystrokeMetrics: metricsRef.current[qId] || { keystrokes: 0, backspaces: 0, pastes: 0 }
       }).catch(() => {})
     } catch (err: any) {
       toast.error('Execution failed')
@@ -191,10 +215,14 @@ export default function MixedRound() {
   }
 
   const handleFinish = async () => {
-    if (!window.confirm('Submit your assessment?')) return
+    if (!confirmSubmit) {
+      setConfirmSubmit(true)
+      toast('Click finish again to confirm.', { icon: '⚠️', duration: 4000 })
+      return
+    }
     setSubmitting(true)
     try {
-      const res = await attemptApi.complete(attempt.id)
+      const res = await withOfflineRetry(() => attemptApi.complete(attempt.id))
       if (res.advancement?.outcome === 'ADVANCED') {
         toast.success('Assessment submitted! Advancing to next round...')
         navigate(`/candidate/assessment/${res.advancement.nextRound.id}`)
@@ -242,8 +270,8 @@ export default function MixedRound() {
         <button className="btn btn-secondary" disabled={currentIndex === 0} onClick={() => setCurrentIndex(currentIndex - 1)}>
           <ChevronLeft size={18} /> Previous
         </button>
-        <button className="btn btn-primary" onClick={handleNext}>
-          {currentIndex === questions.length - 1 ? 'Finish' : 'Next'} <ChevronRight size={18} />
+        <button className="btn btn-primary" onClick={handleNext} style={{ background: confirmSubmit && currentIndex === questions.length - 1 ? 'var(--red)' : '' }}>
+          {currentIndex === questions.length - 1 ? (confirmSubmit ? 'Confirm Finish' : 'Finish') : 'Next'} <ChevronRight size={18} />
         </button>
       </div>
     </div>
@@ -299,7 +327,7 @@ export default function MixedRound() {
         </div>
 
         <div style={{ flex: 1, position:'relative' }}>
-          <Editor height="100%" language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage} theme={darkTheme ? "vs-dark" : "light"} value={codingCodes[q.id]?.[selectedLanguage] || ''} onChange={handleCodeChange} options={{ minimap: { enabled: false }, fontSize, fontFamily: "'Cascadia Code','Fira Code','JetBrains Mono',monospace", lineNumbers: lineNums ? 'on' : 'off' }} />
+          <Editor height="100%" language={selectedLanguage === 'cpp' ? 'cpp' : selectedLanguage} theme={darkTheme ? "vs-dark" : "light"} value={codingCodes[q.id]?.[selectedLanguage] || ''} onChange={handleCodeChange} onMount={handleEditorMount} options={{ minimap: { enabled: false }, fontSize, fontFamily: "'Cascadia Code','Fira Code','JetBrains Mono',monospace", lineNumbers: lineNums ? 'on' : 'off' }} />
         </div>
 
         <div style={{ height: '140px', background: '#0a0a14', borderTop: '2px solid #1e293b', flexShrink:0, display:'flex', flexDirection:'column' }}>
@@ -317,8 +345,8 @@ export default function MixedRound() {
            <button className="btn btn-sm btn-secondary" onClick={() => setCurrentIndex(currentIndex - 1)} disabled={currentIndex === 0}>
               <ChevronLeft size={14} /> Previous
            </button>
-           <button className="btn btn-sm btn-primary" onClick={handleNext}>
-              {currentIndex === questions.length - 1 ? 'Finish Assessment' : 'Next Task'} <ChevronRight size={14} />
+           <button className="btn btn-sm btn-primary" onClick={handleNext} style={{ background: confirmSubmit && currentIndex === questions.length - 1 ? 'var(--red)' : '', borderColor: confirmSubmit && currentIndex === questions.length - 1 ? 'var(--red)' : '' }}>
+              {currentIndex === questions.length - 1 ? (confirmSubmit ? 'Confirm Finish' : 'Finish Assessment') : 'Next Task'} <ChevronRight size={14} />
            </button>
         </div>
       </div>
@@ -345,8 +373,8 @@ export default function MixedRound() {
 
       <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'space-between' }}>
         <button className="btn btn-secondary" onClick={() => setCurrentIndex(currentIndex - 1)} disabled={currentIndex === 0}>Back</button>
-        <button className="btn btn-primary" onClick={handleNext} disabled={submitting}>
-          {submitting ? 'Saving...' : currentIndex === questions.length - 1 ? 'Complete Assessment' : 'Next Question'}
+        <button className="btn btn-primary" onClick={handleNext} disabled={submitting} style={{ background: confirmSubmit && currentIndex === questions.length - 1 ? 'var(--red)' : '' }}>
+          {submitting ? 'Saving...' : currentIndex === questions.length - 1 ? (confirmSubmit ? 'Confirm Finish' : 'Complete Assessment') : 'Next Question'}
         </button>
       </div>
     </div>

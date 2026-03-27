@@ -11,6 +11,7 @@ import toast from 'react-hot-toast'
 import Editor from '@monaco-editor/react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { withOfflineRetry } from '../../utils/offlineQueue'
 
 /* ── Constants ────────────────────────────────────────────── */
 const LANG_OPTIONS = [
@@ -42,7 +43,7 @@ export default function CodingRound() {
   const { roundId } = useParams()
   const navigate    = useNavigate()
   const {
-    setAttemptId, setStrikes, setTimer, setRoundTitle, setSessionId, setFaceDescriptor,
+    setAttemptId, setStrikes, setTimer, timeLeft, setRoundTitle, setSessionId, setFaceDescriptor,
     questions, setQuestions, currentIndex, setCurrentIndex,
   } = useOutletContext<any>()
 
@@ -71,8 +72,17 @@ export default function CodingRound() {
     type: 'warning' as any
   })
   const dragY = useRef<{y:number;h:number}|null>(null)
+  const metricsRef = useRef<Record<string, { keystrokes: number, backspaces: number, pastes: number }>>({})
 
   useEffect(() => { loadAttempt() }, [roundId])
+
+  /* ── Auto-submit on timeout ── */
+  useEffect(() => {
+    if (timeLeft === 0 && !submitting && attempt) {
+      toast('Time expired! Auto-submitting your coding attempt...', { icon: '⏳' })
+      handleAutoFinish()
+    }
+  }, [timeLeft])
 
   /* ── data loading ── */
   const loadAttempt = async () => {
@@ -149,6 +159,26 @@ export default function CodingRound() {
     })
   }
 
+  const handleEditorMount = (editor: any, monaco: any) => {
+    editor.onKeyDown((e: any) => {
+      const qId = questions[currentIndex]?.id
+      if (!qId) return
+      if (!metricsRef.current[qId]) metricsRef.current[qId] = { keystrokes: 0, backspaces: 0, pastes: 0 }
+      
+      metricsRef.current[qId].keystrokes++
+      if (e.keyCode === monaco.KeyCode.Backspace) {
+        metricsRef.current[qId].backspaces++
+      }
+    })
+
+    editor.onDidPaste(() => {
+      const qId = questions[currentIndex]?.id
+      if (!qId) return
+      if (!metricsRef.current[qId]) metricsRef.current[qId] = { keystrokes: 0, backspaces: 0, pastes: 0 }
+      metricsRef.current[qId].pastes++
+    })
+  }
+
   /* ── run ── */
   const handleRun = async () => {
     setRunning(true)
@@ -173,7 +203,50 @@ export default function CodingRound() {
     } finally { setRunning(false) }
   }
 
-  /* ── finish ── */
+  /* ── Auto-finish without prompt ── */
+  const handleAutoFinish = async () => {
+    setSubmitting(true)
+    try {
+      await Promise.all(
+        questions.map((q: any) =>
+          attemptApi.submitCoding({
+            attemptId: attempt.id,
+            questionId: q.id,
+            sourceCode: codeFor(q.id, lang),
+            language: lang,
+            keystrokeMetrics: metricsRef.current[q.id] || { keystrokes: 0, backspaces: 0, pastes: 0 }
+          }).catch(e => console.error(e))
+        )
+      )
+      const res = await withOfflineRetry(() => attemptApi.complete(attempt.id))
+      
+      // Cleanup localStorage cache
+      questions.forEach((q: any) => {
+        LANG_OPTIONS.forEach(l => localStorage.removeItem(`indium_code_${attempt.id}_${q.id}_${l.value}`))
+      })
+
+      const outcome = res.advancement?.outcome
+      if (outcome === 'ADVANCED') {
+        toast.success('Round timed out but passed! Check the lobby for your next round.')
+        navigate('/candidate/lobby', { state: { advancement: res.advancement } })
+      } else if (outcome === 'ALL_ROUNDS_COMPLETE') {
+        toast.success('All rounds complete. Well done!')
+        navigate('/candidate/complete')
+      } else if (outcome === 'REJECTED') {
+        navigate('/candidate/terminated', {
+          state: { reason: res.advancement?.reason, type: 'failed' },
+        })
+      } else if (outcome === 'FLAGGED') {
+        navigate('/candidate/complete', { state: { pendingReview: true } })
+      } else {
+        toast.success('Assessment submitted!')
+        navigate('/candidate/lobby')
+      }
+    } catch { toast.error('Failed to complete') }
+    finally { setSubmitting(false) }
+  }
+
+  /* ── finish (manual) ── */
   const handleFinish = async () => {
     setModalConfig({
       isOpen: true,
@@ -190,13 +263,30 @@ export default function CodingRound() {
                 questionId: q.id,
                 sourceCode: codeFor(q.id, lang),
                 language: lang,
+                keystrokeMetrics: metricsRef.current[q.id] || { keystrokes: 0, backspaces: 0, pastes: 0 }
               }).catch(e => console.error(e))
             )
           )
-          const res = await attemptApi.complete(attempt.id)
-          if (res.advancement?.outcome === 'ADVANCED') {
-            toast.success('Advancing to next round…')
-            navigate(`/candidate/assessment/${res.advancement.nextRound.id}`)
+          const res = await withOfflineRetry(() => attemptApi.complete(attempt.id))
+          
+          // Cleanup localStorage cache
+          questions.forEach((q: any) => {
+            LANG_OPTIONS.forEach(l => localStorage.removeItem(`indium_code_${attempt.id}_${q.id}_${l.value}`))
+          })
+
+          const outcome = res.advancement?.outcome
+          if (outcome === 'ADVANCED') {
+            toast.success('Round passed! Check the lobby for your next round.')
+            navigate('/candidate/lobby', { state: { advancement: res.advancement } })
+          } else if (outcome === 'ALL_ROUNDS_COMPLETE') {
+            toast.success('All rounds complete. Well done!')
+            navigate('/candidate/complete')
+          } else if (outcome === 'REJECTED') {
+            navigate('/candidate/terminated', {
+              state: { reason: res.advancement?.reason, type: 'failed' },
+            })
+          } else if (outcome === 'FLAGGED') {
+            navigate('/candidate/complete', { state: { pendingReview: true } })
           } else {
             toast.success('Assessment submitted!')
             navigate('/candidate/lobby')
@@ -427,6 +517,7 @@ export default function CodingRound() {
               language={lang === 'cpp' ? 'cpp' : lang}
               value={codeFor(q.id, lang)}
               onChange={handleEdit}
+              onMount={handleEditorMount}
               theme={darkTheme ? 'vs-dark' : 'light'}
               options={{
                 minimap: { enabled: false },

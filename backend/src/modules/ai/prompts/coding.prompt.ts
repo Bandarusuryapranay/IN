@@ -45,7 +45,7 @@ LEETCODE STYLE RULES — every problem must follow all of these:
 4. Examples must label each parameter by name, show exact output, and explain WHY step by step
 5. Constraints: input size range, value range, time complexity expectation, any domain constraints
 6. Starter code must have JSDoc/@param/@return with domain-relevant parameter names. Use class-based or function-based LeetCode boilerplates.
-7. Test cases: 2 visible + 3 hidden edge cases (empty input, single item, large n, boundary values). Multi-line inputs use \\n.
+7. Test cases: EXACTLY 5 test cases total -> 2 visible (\`isHidden: false\`) + 3 hidden edge cases (\`isHidden: true\`) (e.g., empty input, large numbers). Multi-line inputs use \\n.
 8. NEVER generate trivial problems — every problem must require algorithmic thinking
 9. **CRITICAL: EXECUTION WRAPPER**: For every language provided in starterCode, you MUST provide corresponding \`wrapperCode\`. The wrapper code is appended to the user's code during execution. It must read all inputs from standard input (stdin), parse them according to the test case format, instantiate the class/function, call it, and print the result to stdout.
 
@@ -67,7 +67,11 @@ Respond ONLY with valid JSON — no markdown, no explanation:
         }
       ],
       "testCases": [
-        { "input": "[\\"eat\\",\\"tea\\"]", "expectedOutput": "[[\\"eat\\",\\"tea\\"]]", "isHidden": false }
+        { "input": "[\\"eat\\",\\"tea\\"]", "expectedOutput": "[[\\"eat\\",\\"tea\\"]]", "isHidden": false },
+        { "input": "[\\"a\\"]", "expectedOutput": "[[\\"a\\"]]", "isHidden": false },
+        { "input": "[\\"\\"]", "expectedOutput": "[[\\"\\"]]", "isHidden": true },
+        { "input": "[]", "expectedOutput": "[]", "isHidden": true },
+        { "input": "[\\"ab\\",\\"ba\\",\\"abc\\"]", "expectedOutput": "[[\\"ab\\",\\"ba\\"],[\\"abc\\"]]", "isHidden": true }
       ],
       "starterCode": {
         "javascript": "/**\\n * @param {string[]} logs\\n * @return {string[][]}\\n */\\nvar groupAnagramLogs = function(logs) {\\n    \\n};",
@@ -130,7 +134,7 @@ LEETCODE STYLE RULES — every problem must follow all of these:
 4. Examples must show: Input → label each parameter by name, Output → exact return value, Explanation → step-by-step reasoning showing WHY the output is correct.
 5. Constraints section must include: array size range (1 <= n <= 10^5), value range (-10^9 <= nums[i] <= 10^9), expected time complexity hint, and any special constraints.
 6. Function signature must be clearly defined in the starter code with proper parameter names and return type comments.
-7. Test cases: 2 visible (matching your examples exactly) + 3 hidden edge cases (empty-ish inputs, large n, negative values, duplicates).
+7. Test cases: EXACTLY 5 test cases total -> 2 visible (matching your examples exactly, \`isHidden: false\`) + 3 hidden edge cases (empty-ish inputs, large n, negative values, duplicates, \`isHidden: true\`).
 8. Starter code must have JSDoc/docstring with @param and @return annotations.
 9. NEVER generate trivial problems: no "find maximum", no "count elements", no "sum of array", no "reverse a string" as standalone problems.
 10. **CRITICAL: EXECUTION WRAPPER**: For every language provided in starterCode, you MUST provide corresponding \`wrapperCode\`. The wrapper code is appended to the user's code during execution. It must read all inputs from standard input (stdin), parse them according to the test case format, instantiate the class/function, call it, and print the result to stdout.
@@ -155,7 +159,9 @@ Respond ONLY with valid JSON — no markdown, no explanation, just the JSON obje
       "testCases": [
         { "input": "[2,7,11,15]\\n9", "expectedOutput": "[0,1]", "isHidden": false },
         { "input": "[3,2,4]\\n6", "expectedOutput": "[1,2]", "isHidden": false },
-        { "input": "[3,3]\\n6", "expectedOutput": "[0,1]", "isHidden": true }
+        { "input": "[3,3]\\n6", "expectedOutput": "[0,1]", "isHidden": true },
+        { "input": "[0,4,3,0]\\n0", "expectedOutput": "[0,3]", "isHidden": true },
+        { "input": "[-1,-2,-3,-4,-5]\\n-8", "expectedOutput": "[2,4]", "isHidden": true }
       ],
       "starterCode": {
         "javascript": "/**\\n * @param {number[]} nums\\n * @param {number} target\\n * @return {number[]}\\n */\\nvar twoSum = function(nums, target) {\\n    \\n};",

@@ -5,7 +5,7 @@ import { candidateApi } from '../../services/api.services'
 import {
   AlertTriangle, Clock, FileText,
   Sun, Moon, Lock, CheckCircle, XCircle, ChevronRight,
-  ShieldAlert
+  ShieldAlert, LogOut
 } from 'lucide-react'
 import { useAuthStore } from '../../store/authStore'
 import { useThemeStore } from '../../store/themeStore'
@@ -20,6 +20,11 @@ export default function LobbyPage() {
   const [rulesAccepted, setRulesAccepted]   = useState(false)
   const [isScanning, setIsScanning]         = useState(false)
   const [isEnrolling, setIsEnrolling]       = useState(false)
+  const [systemChecked, setSystemChecked]   = useState(false)
+  const [isCheckingSystem, setIsCheckingSystem] = useState(false)
+  const [sysStep, setSysStep] = useState(0)
+  const [sysError, setSysError] = useState('')
+
   const videoRef  = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
@@ -64,6 +69,50 @@ export default function LobbyPage() {
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
+  }
+
+  // ── System Check ──────────────────────────────────────────────
+  const runSystemCheck = async () => {
+    setIsCheckingSystem(true)
+    setSysStep(1)
+    setSysError('')
+    
+    // 1. Network check
+    try {
+      const start = Date.now()
+      await fetch(import.meta.env.VITE_API_BASE_URL ? import.meta.env.VITE_API_BASE_URL.replace('/api/v1', '') + '/health' : '/').catch(() => fetch('/'))
+      const duration = Date.now() - start
+      if (duration > 4000) throw new Error('Network latency too high (>4000ms)')
+    } catch (e: any) {
+      setSysError('Network check failed. Please ensure you have a stable connection.')
+      return
+    }
+
+    setSysStep(2)
+    // 2. Camera check
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      stream.getTracks().forEach(t => t.stop())
+    } catch (e) {
+      setSysError('Camera access denied or unavailable. Please check your browser permissions.')
+      return
+    }
+
+    setSysStep(3)
+    // 3. Mic check
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+    } catch (e) {
+      setSysError('Microphone access denied or unavailable. Please check your browser permissions.')
+      return
+    }
+
+    setSysStep(4)
+    setTimeout(() => {
+      setSystemChecked(true)
+      setIsCheckingSystem(false)
+    }, 1200)
   }
 
   // ── Start flow ───────────────────────────────────────────────
@@ -216,10 +265,25 @@ export default function LobbyPage() {
           }}>
             <CheckCircle size={48} color="var(--green-dark)" style={{ marginBottom:16, display:'block', margin:'0 auto 16px' }} />
             <h2 style={{ color:'var(--text-primary)', marginBottom:8 }}>Assessment Completed</h2>
-            <p style={{ color:'var(--text-secondary)', lineHeight:1.6 }}>
+            <p style={{ color:'var(--text-secondary)', lineHeight:1.6, marginBottom:24 }}>
               You have successfully completed all assessment rounds. Your recruiter will review
               your results and be in touch soon!
             </p>
+            <button
+              className="btn btn-outline"
+              style={{ width:'100%', gap:8, justifyContent:'center' }}
+              onClick={() => {
+                const bridge = (window as any).electronBridge
+                if (bridge?.isElectron) {
+                  bridge.notifyTestComplete()
+                } else {
+                  navigate('/login')
+                }
+              }}
+            >
+              <LogOut size={16} />
+              {(window as any).electronBridge?.isElectron ? 'Exit Assessment App' : 'Return to Login'}
+            </button>
           </div>
         )}
 
@@ -419,10 +483,36 @@ export default function LobbyPage() {
               </label>
             </div>
 
+            {/* System Check */}
+            <div style={{
+              background:'var(--bg-elevated)', borderRadius:12,
+              padding:'20px 24px', border:'1px solid var(--border)',
+            }}>
+              <div style={{
+                fontSize:'0.9rem', fontWeight:600, color:'var(--text-primary)',
+                marginBottom:14, display:'flex', alignItems:'center', gap:8,
+              }}>
+                <ShieldAlert size={16} color="var(--teal)" />
+                Pre-flight System Check
+              </div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+                <span style={{ fontSize:'0.875rem', color:'var(--text-secondary)' }}>
+                  We must verify your network, camera, and microphone before starting.
+                </span>
+                <button 
+                  className={`btn ${systemChecked ? 'btn-ghost' : 'btn-outline'}`}
+                  onClick={runSystemCheck}
+                  disabled={systemChecked}
+                >
+                  {systemChecked ? <><CheckCircle size={16} color="var(--green)" /> Verified</> : 'Run Check'}
+                </button>
+              </div>
+            </div>
+
             {/* CTA Button */}
             <button
               className="btn btn-primary"
-              disabled={!rulesAccepted || !currentRound}
+              disabled={!rulesAccepted || !currentRound || !systemChecked}
               style={{ width:'100%', padding:'15px', fontSize:'1rem', fontWeight:700 }}
               onClick={handleStartProcess}
             >
@@ -509,6 +599,57 @@ export default function LobbyPage() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          SYSTEM CHECK OVERLAY
+      ═══════════════════════════════════════════════════════════ */}
+      {isCheckingSystem && (
+        <div style={{
+          position:'fixed', inset:0, background:'rgba(0,0,0,0.94)', zIndex:1000,
+          display:'flex', alignItems:'center', justifyContent:'center', padding:20, animation:'fadeIn 0.2s ease'
+        }}>
+          <div className="card slide-up" style={{ maxWidth:420, width:'100%', padding:32 }}>
+            <h2 style={{ color:'var(--cream)', marginBottom:8, textAlign:'center' }}>System Check</h2>
+            <p style={{ fontSize:'0.85rem', color:'var(--text-secondary)', marginBottom:24, textAlign:'center' }}>
+              Verifying hardware and network capabilities...
+            </p>
+
+            <div style={{ display:'flex', flexDirection:'column', gap:16, marginBottom:32 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ color: sysStep >= 1 ? 'var(--cream)' : 'var(--text-muted)' }}>1. Network Latency</span>
+                {sysStep === 1 && <div className="spinner spinner-sm" />}
+                {sysStep > 1 && <CheckCircle size={16} color="var(--green)" />}
+              </div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ color: sysStep >= 2 ? 'var(--cream)' : 'var(--text-muted)' }}>2. Web Camera Access</span>
+                {sysStep === 2 && <div className="spinner spinner-sm" />}
+                {sysStep > 2 && <CheckCircle size={16} color="var(--green)" />}
+              </div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ color: sysStep >= 3 ? 'var(--cream)' : 'var(--text-muted)' }}>3. Microphone Access</span>
+                {sysStep === 3 && <div className="spinner spinner-sm" />}
+                {sysStep > 3 && <CheckCircle size={16} color="var(--green)" />}
+              </div>
+            </div>
+
+            {sysError && (
+              <div style={{ padding:16, background:'rgba(239,68,68,0.1)', border:'1px solid var(--red)', borderRadius:8, color:'var(--red)', fontSize:'0.85rem', marginBottom:20, textAlign:'center' }}>
+                {sysError}
+              </div>
+            )}
+
+            {sysError ? (
+              <button className="btn btn-outline" style={{ width:'100%' }} onClick={() => setIsCheckingSystem(false)}>
+                Close
+              </button>
+            ) : sysStep === 4 ? (
+              <button className="btn btn-primary" style={{ width:'100%' }} disabled>
+                All Systems Go!
+              </button>
+            ) : null}
           </div>
         </div>
       )}
