@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import Queue from 'bull'
 
 interface Job {
   id:          string
@@ -16,12 +17,29 @@ class SimpleQueue {
   private processing: boolean = false
   private handler:    JobHandler | null = null
   private emitter:    EventEmitter = new EventEmitter()
+  private bullQueue:  Queue.Queue | null = null
 
   constructor(name: string) {
     this.queueName = name
+    
+    // If REDIS_URL is set, use Bull for actual persistence
+    if (process.env.REDIS_URL) {
+      this.bullQueue = new Queue(name, process.env.REDIS_URL, {
+        redis: {
+          tls: process.env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined
+        }
+      })
+      console.log(`[Queue:${name}] 🚀 Initialized with Redis (Bull)`)
+    } else {
+      console.log(`[Queue:${name}] ️⚠️ Initialized with In-Memory mode (Development)`)
+    }
   }
 
-  async add(name: string, data: any, opts?: { attempts?: number }): Promise<Job> {
+  async add(name: string, data: any, opts?: { attempts?: number }): Promise<Job | any> {
+    if (this.bullQueue) {
+      return this.bullQueue.add(name, data, { attempts: opts?.attempts || 3 })
+    }
+
     const job: Job = {
       id:          `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name,
@@ -34,7 +52,24 @@ class SimpleQueue {
     return job
   }
 
-  process(_name: string, handler: JobHandler): void {
+  process(name: string, handler: JobHandler): void {
+    if (this.bullQueue) {
+      this.bullQueue.process(name, async (bullJob) => {
+        const job: Job = {
+          id: String(bullJob.id),
+          name: bullJob.name,
+          data: bullJob.data,
+          attempts: bullJob.attemptsMade,
+          maxAttempts: bullJob.opts.attempts || 3
+        }
+        return handler(job)
+      })
+
+      this.bullQueue.on('completed', (job, result) => this.emitter.emit('completed', job, result))
+      this.bullQueue.on('failed', (job, err) => this.emitter.emit('failed', job, err))
+      return
+    }
+
     this.handler = handler
   }
 
@@ -44,6 +79,11 @@ class SimpleQueue {
   }
 
   schedule(intervalMs: number, name: string, data: any = {}): void {
+    if (this.bullQueue) {
+      // Bull supports repeatable jobs, but for simplicity we'll keep the interval behavior
+      setInterval(() => this.add(name, data), intervalMs)
+      return
+    }
     setInterval(() => this.add(name, data), intervalMs)
   }
 
