@@ -19,9 +19,6 @@ import { attemptRouter }    from './modules/attempt/attempt.routes'
 import { proctoringRouter } from './modules/proctoring/proctoring.routes'
 import { scorecardRouter }  from './modules/scorecard/scorecard.routes'
 
-import path from 'path'
-
-const app = express()
 
 // 1. Trust proxy for rate limiting behind Render/Vercel
 app.set('trust proxy', 1)
