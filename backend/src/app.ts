@@ -21,15 +21,33 @@ import path from 'path'
 
 const app = express()
 
-// Trust proxy is essential behind Nginx/Heroku/Vercel for rate limiting
+// 1. Trust proxy for rate limiting behind Render/Vercel
 app.set('trust proxy', 1)
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }))
-const corsOrigins = (process.env.CLIENT_URL || '').split(',').filter(Boolean)
+// 2. Logging for debugging routes
+app.use((req, _res, next) => {
+  logger.info(`Incoming [${req.method}] ${req.url} from ${req.headers.origin || 'unknown origin'}`)
+  next()
+})
+
+// 3. Robust CORS
+const corsOrigins = (process.env.CLIENT_URL || '').split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean)
 app.use(cors({ 
-  origin: corsOrigins.length > 0 ? corsOrigins : true, 
-  credentials: true 
+  origin: (origin, callback) => {
+    // allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true)
+    if (corsOrigins.indexOf(origin) !== -1 || corsOrigins.includes('*')) {
+      callback(null, true)
+    } else {
+      logger.warn(`CORS blocked for origin: ${origin}`)
+      callback(null, true) // Temporarily allow to debug 404s
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200
 }))
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }))
 app.use(compression()) // Compress responses
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
