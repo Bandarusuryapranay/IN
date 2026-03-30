@@ -8,7 +8,7 @@ const prisma = new PrismaClient()
 // ─────────────────────────────────────────────
 
 const ADMIN = {
-  email:     'admin@indium.dev',
+  email:     'admin@smarthire.dev',
   password:  'Admin@1234',
   firstName: 'Platform',
   lastName:  'Admin',
