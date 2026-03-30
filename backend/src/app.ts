@@ -4,6 +4,8 @@ import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
 import compression from 'compression'
+import path from 'path'
+import { logger } from './lib/logger'
 import { authLimiter, apiLimiter } from './middlewares/rateLimiter.middleware'
 import { errorHandler } from './middlewares/error.middleware'
 
